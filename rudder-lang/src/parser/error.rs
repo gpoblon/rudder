@@ -48,15 +48,16 @@ pub enum PErrorKind<I> {
     Nom(VerboseError<I>),
     #[cfg(test)]
     NomTest(String), // cannot be use outside of tests
-    InvalidFormat,                 // in header
-    InvalidName(I),                // in identifier expressions (type of expression)
-    UnexpectedToken(&'static str), // anywhere (expected token)
-    UnterminatedDelimiter(I),      // after an opening delimiter (first delimiter)
+    ExpectedKeyword(&'static str), // anywhere (keyword type)
+    ExpectedReservedWord(&'static str), // anywhere (keyword that does not exist)
+    ExpectedToken(&'static str), // anywhere (expected token)
     InvalidEnumExpression,         // in enum expression
     InvalidEscapeSequence,         // in string definition
+    InvalidFormat,                 // in header
+    InvalidName(I),                // in identifier expressions (type of expression)
     InvalidVariableReference,      // during string interpolation
-    ExpectedKeyword(&'static str), // anywhere (keyword type)
     UnsupportedMetadata(I), // metadata or comments are not supported everywhere (metadata key)
+    UnterminatedDelimiter(I),      // after an opening delimiter (first delimiter)
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -123,23 +124,31 @@ impl<I: Clone> ParseError<I> for PError<I> {
 impl<'src> fmt::Display for PError<PInput<'src>> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let message = match &self.kind {
-            PErrorKind::Nom(e) => format!("Unprocessed parsing error: {:?}.\nPlease fill a BUG with context on when this happened!", e),
+            PErrorKind::Nom(e) => format!("Unprocessed parsing error: '{:#?}'.\nPlease fill a BUG with context on when this happened!", e),
             #[cfg(test)]
             PErrorKind::NomTest(msg) => format!("Testing only error message, this should never happen {}.\nPlease fill a BUG with context on when this happened!", msg),
-            PErrorKind::InvalidFormat => "Invalid header format, it must contain a single line '@format=x' where x is an integer. Shebang accepted.".to_string(),
-            PErrorKind::InvalidName(i) => format!("The identifier is invalid in a {}.", i.fragment.bright_magenta()),
-            PErrorKind::UnexpectedToken(s) => format!("Unexpected token, expecting '{}', found", s.bright_magenta()),
-            PErrorKind::UnterminatedDelimiter(i) => format!("Missing closing delimiter for '{}'", i.fragment.bright_magenta()),
+            PErrorKind::ExpectedKeyword(s) => format!("The following value kind was expected: '{}'.", s.bright_magenta()),
+            PErrorKind::ExpectedReservedWord(s) => format!("The following reserved keyword was expected: '{}'.", s.bright_magenta()),
+            PErrorKind::ExpectedToken(s) => format!("The following token was expected '{}'.", s.bright_magenta()),
             PErrorKind::InvalidEnumExpression => "This enum expression is invalid".to_string(),
             PErrorKind::InvalidEscapeSequence => "This escape sequence cannot be used in a string".to_string(),
+            PErrorKind::InvalidFormat => "Invalid header format, it must contain a single line '@format=x' where x is an integer. Shebang accepted.".to_string(),
+            PErrorKind::InvalidName(i) => format!("The identifier is invalid in a {}.", i.fragment.bright_magenta()),
             PErrorKind::InvalidVariableReference => "This variable reference is invalid".to_string(),
-            PErrorKind::ExpectedKeyword(s) => format!("Token not found, expected '{}'", s.bright_magenta()),
             PErrorKind::UnsupportedMetadata(i) => format!("Parsed comment or metadata not supported at this place: '{}' fount at {}", i.fragment.bright_magenta(), Token::from(*i).position_str().bright_yellow()),
+            PErrorKind::UnterminatedDelimiter(i) => format!("Missing closing delimiter for '{}'", i.fragment.bright_magenta()),
         };
+
+        // simply removes superfluous line return (prettyfication)
+        let mut err_context = self.context.fragment.to_owned();
+        if err_context.chars().last() == Some('\n') {
+            err_context.pop();
+        }
+        // Formats final error output
         f.write_str(&format!(
-            "{}, near\n{}{} {}",
+            "{}, near '{}'\n{} {}",
             Token::from(self.context).position_str().bright_yellow(),
-            self.context.fragment,
+            err_context,
             "-->".bright_blue(),
             message.bold(),
             
@@ -166,8 +175,7 @@ where
     E: Fn() -> PErrorKind<PInput<'src>>,
 {
     move |input| {
-        let x = f(input);
-        match x {
+        match f(input) {
             // a non nom error cannot be superseded
             // keep original context when possible
             Err(Err::Failure(err)) => match err.kind {
@@ -181,12 +189,45 @@ where
                 context: err.context,
                 kind: e(),
             })),
-            Err(Err::Incomplete(_)) => Err(Err::Failure(PError {
+            Err(Err::Incomplete(_)) => {
+                println!("INCOMPLET");
+                Err(Err::Failure(PError {
                 context: input,
                 kind: e(),
-            })),
+            }))},
             Ok(y) => Ok(y),
         }
+    }
+}
+
+/// Same function as `or_fail()` with an additional parameter containing a different error context (previous cursor offset)
+pub fn or_fail_err<'src>(e: nom::Err<PError<PInput<'src>>>, previous_context: PInput<'src>) -> Err<PError<PInput<'src>>>
+{
+    match e {
+        Err::Failure(err) => {
+            Err::Failure(PError {
+            context: previous_context,
+            kind: err.kind.clone()
+        })},
+        Err::Error(err) => Err::Failure(PError {
+            context: previous_context,
+            kind: err.kind.clone(),
+        }),
+        Err::Incomplete(_) => panic!("Incomplete should never happen"),
+    }
+}
+
+/// Checks the nature of a nom::Error returned by any parser
+/// Designed to be coupled with `or_fail_err()` to update an unrecoverable (but handled) error context
+/// to output compilation errors more precisely.
+// not totally sure about expected behavior when hitting an Error or Incomplete cases
+// but should probably keep going until an unrecoverable error is encountered
+pub fn is_error_handled(e: &Err<PError<PInput>>) -> bool {
+    // println!("ERR: {:#?}", e);
+    match e {
+        Err::Failure(_) => true,
+        Err::Error(_) => false,
+        Err::Incomplete(_) => panic!("Incomplete should never happen"),
     }
 }
 

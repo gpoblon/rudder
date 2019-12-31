@@ -22,4 +22,3 @@ enum outcome {
   repaired,
   error
 }
-

@@ -190,23 +190,60 @@ macro_rules! sequence {
     ( { $($f:ident : $parser:expr;)* } => $output:expr ) => {
         move |i| {
             $(
-                let (i,$f) = $parser (i)?;
+                // save last line (cursor is updated at parser calls). context of an potential error
+                let focalized_error = get_focalized_input(i);
+                // intercept error to update its context if it should lead to a handled compilation error
+                let (i, $f) = match $parser (i) {
+                    Ok(res) => res,
+                    Err(e) => {
+                        match is_error_handled(&e) {
+                            true => return Err(or_fail_err(e, focalized_error)),
+                            false => return Err(e),
+                        }
+                    }
+                };
             )*
             Ok((i, $output))
         }
     };
 }
+
 /// wsequence is the same a sequence, but we automatically insert space parsing between each call
 macro_rules! wsequence {
     ( { $($f:ident : $parser:expr;)* } => $output:expr ) => {
         move |i| {
             $(
-                let (i,$f) = $parser (i)?;
+                // save last line (cursor is updated at parser calls). context of an potential error
+                let focalized_error = get_focalized_input(i);
+                // intercept error to update its context if it should lead to a handled compilation error
+                let (i, $f) = match $parser (i) {
+                    Ok(res) => res,
+                    Err(e) => {
+                        match is_error_handled(&e) {
+                            true => return Err(or_fail_err(e, focalized_error)),
+                            false => return Err(e),
+                        }
+                    }
+                };
                 let (i,_) = strip_spaces_and_comment(i)?;
             )*
             Ok((i, $output))
         }
     };
+}
+
+// /// Tool / Trick function to work on a PInput from within the closure macro
+// fn pinput_clone(i: PInput) -> PInput {
+//     i.clone()
+// }
+
+/// Tool function allowing to save last state of parsing offset line before any error
+fn get_focalized_input(i: PInput) -> PInput {
+    // Might be useful to expand via a second parameter the limit pattern or even a function to combine with
+    let err_result: nom::IResult<PInput, PInput> = take_until("\n")(i);
+    // return the received input by default
+    let (_next, err_holder) = err_result.unwrap_or((i, i));
+    err_holder
 }
 
 /// A source file header consists of a single line '@format=<version>'.
@@ -216,17 +253,18 @@ pub struct PHeader {
     pub version: u32,
 }
 fn pheader(i: PInput) -> PResult<PHeader> {
-    sequence!(
+    let res = sequence!(
         {
             _x: opt(tuple((tag("#!/"), take_until("\n"), newline)));
             _x: or_fail(tag("@format="), || PErrorKind::InvalidFormat);
             version: or_fail(
                 map_res(take_until("\n"), |s: PInput| s.fragment.parse::<u32>()),
-                || PErrorKind::InvalidFormat
-                );
+                || PErrorKind::InvalidFormat,
+            );
             _x: tag("\n");
         } => PHeader { version }
-    )(i)
+    )(i);
+    res
 }
 
 /// An identifier is a word that contains alphanumeric chars.
@@ -261,7 +299,7 @@ fn penum(i: PInput) -> PResult<PEnum> {
             metadata: pmetadata_list; // metadata unsupported here, check done after 'enum' tag
             global: opt(tag("global")); // TODO at least one space here
             e:      tag("enum"); // TODO at least one space here
-            _fail: or_fail(verify(peek(anychar), |_| metadata.is_empty()), || PErrorKind::UnsupportedMetadata(metadata[0].key.into()));
+            _fail:  or_fail(verify(peek(anychar), |_| metadata.is_empty()), || PErrorKind::UnsupportedMetadata(metadata[0].key.into()));
             name:   or_fail(pidentifier, || PErrorKind::InvalidName(e));
             b:      tag("{"); // do not fail here, it could still be a mapping
             items:  separated_nonempty_list(sp(tag(",")), pidentifier);
@@ -293,9 +331,9 @@ fn penum_mapping(i: PInput) -> PResult<PEnumMapping> {
             e:    tag("enum");// TODO at least one space here
             _fail: or_fail(verify(peek(anychar), |_| metadata.is_empty()), || PErrorKind::UnsupportedMetadata(metadata[0].key.into()));
             from: or_fail(pidentifier,|| PErrorKind::InvalidName(e));
-            _x:   or_fail(tag("~>"),|| PErrorKind::UnexpectedToken("~>"));
+            _x:   or_fail(tag("~>"),|| PErrorKind::ExpectedToken("~>"));
             to:   or_fail(pidentifier,|| PErrorKind::InvalidName(e));
-            b:    or_fail(tag("{"),|| PErrorKind::UnexpectedToken("{"));
+            b:    or_fail(tag("{"),|| PErrorKind::ExpectedToken("{"));
             mapping:
                 separated_nonempty_list(
                     sp(tag(",")),
@@ -308,7 +346,7 @@ fn penum_mapping(i: PInput) -> PResult<PEnumMapping> {
                             || PErrorKind::InvalidName(to.into())),
                         or_fail(
                             sp(tag("->")),
-                            || PErrorKind::UnexpectedToken("->")),
+                            || PErrorKind::ExpectedToken("->")),
                         or_fail(
                             alt((
                                 pidentifier,
@@ -458,6 +496,7 @@ fn pescaped_string(i: PInput) -> PResult<(Token, String)> {
 /// An unescaped string is a literal string delimited by '"""'.
 /// The token is here to keep position
 fn punescaped_string(i: PInput) -> PResult<(Token, String)> {
+
     sequence!(
         {
             prefix: tag("\"\"\"");
@@ -591,7 +630,7 @@ impl<'src> PValue<'src> {
     }
 }
 fn pvalue(i: PInput) -> PResult<PValue> {
-    alt((
+    let res =alt((
         // Be careful of ordering here
         map(punescaped_string, |(x, y)| PValue::String(x, y)),
         map(pescaped_string, |(x, y)| PValue::String(x, y)),
@@ -599,7 +638,8 @@ fn pvalue(i: PInput) -> PResult<PValue> {
         map(penum_expression, PValue::EnumExpression),
         map(plist, PValue::List),
         map(pstruct, PValue::Struct),
-    ))(i)
+    ))(i);
+    res
 }
 
 /// A metadata is a key/value pair that gives properties to the statement that follows.
@@ -613,7 +653,7 @@ fn pmetadata(i: PInput) -> PResult<PMetadata> {
     wsequence!(
         {
             key: preceded(tag("@"), pidentifier);
-            _x: or_fail(tag("="), || PErrorKind::UnexpectedToken("="));
+            _x: or_fail(tag("="), || PErrorKind::ExpectedToken("="));
             value: pvalue;
         } => PMetadata { key, value }
     )(i)
@@ -829,7 +869,7 @@ fn pstatement(i: PInput) -> PResult<PStatement> {
                         wsequence!(
                             {
                                 expr: or_fail(penum_expression, || PErrorKind::ExpectedKeyword("enum expression"));
-                                _x: or_fail(tag("=>"), || PErrorKind::UnexpectedToken("=>"));
+                                _x: or_fail(tag("=>"), || PErrorKind::ExpectedToken("=>"));
                                 stmt: or_fail(alt((
                                     map(pstatement, |x| vec![x]),
                                     wsequence!(
@@ -852,7 +892,7 @@ fn pstatement(i: PInput) -> PResult<PStatement> {
                 metadata: pmetadata_list; // metadata is invalid here, check it after the 'if' tag below
                 case: tag("if");// TODO at least one space here
                 expr: or_fail(penum_expression, || PErrorKind::ExpectedKeyword("enum expression"));
-                _x: or_fail(tag("=>"), || PErrorKind::UnexpectedToken("=>"));
+                _x: or_fail(tag("=>"), || PErrorKind::ExpectedToken("=>"));
                 stmt: or_fail(pstatement, || PErrorKind::ExpectedKeyword("statement"));
             } => {
                 // Propagate metadata to the single statement
@@ -895,10 +935,10 @@ fn pstate_def(i: PInput) -> PResult<(PStateDef, Vec<Option<PValue>>)> {
             resource_name: pidentifier;
             _st: tag("state"); // TODO at least one space here
             name: pidentifier;
-            s: or_fail(tag("("), || PErrorKind::UnexpectedToken("("));
+            s: or_fail(tag("("), || PErrorKind::ExpectedToken("("));
             parameter_list: separated_list(sp(tag(",")), pparameter);
             _x: or_fail(tag(")"), || PErrorKind::UnterminatedDelimiter(s));
-            sb: or_fail(tag("{"), || PErrorKind::UnexpectedToken("{"));
+            sb: or_fail(tag("{"), || PErrorKind::ExpectedToken("{"));
             statements: many0(pstatement);
             _x: or_fail(tag("}"), || PErrorKind::UnterminatedDelimiter(sb));
         } => {
@@ -985,14 +1025,15 @@ pub struct PFile<'src> {
     pub code: Vec<PDeclaration<'src>>,
 }
 fn pfile(i: PInput) -> PResult<PFile> {
-    all_consuming(sequence!(
+    let res = all_consuming(sequence!(
         {
             header: pheader;
             _x: strip_spaces_and_comment;
             code: many0(pdeclaration);
             _x: strip_spaces_and_comment;
         } => PFile {header, code}
-    ))(i)
+    ))(i);
+    res
 }
 
 // tests must be at the end to be able to test macros

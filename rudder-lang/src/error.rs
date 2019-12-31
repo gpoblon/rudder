@@ -113,7 +113,7 @@ macro_rules! err {
         Error::User(format!(
                 "{}:\n{} {}",
                 $origin.position_str().bright_yellow(),
-                "-->".bright_blue(),
+                "!-->".bright_blue(),
                 format!( $ ( $ arg ) * )
         ))
     });
