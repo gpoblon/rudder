@@ -234,7 +234,7 @@ pub fn get_suggestion_message<'src, I>(unmatched_token_fragment: &str, list: I) 
 where 
     I: Iterator<Item = &'src Token<'src>>,
 {
-    let separator = ".\n";
+    let separator = ". ";
     let mut output_str = String::new();
     output_str.push_str(separator);
     match list.size_hint() {

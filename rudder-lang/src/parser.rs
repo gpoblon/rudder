@@ -31,6 +31,7 @@
 mod error;
 mod token;
 
+use nom::error::*;
 use nom::branch::*;
 use nom::bytes::complete::*;
 use nom::character::complete::*;
@@ -195,15 +196,11 @@ macro_rules! sequence {
                 // intercept error to update its context if it should lead to a handled compilation error
                 let (i, $f) = match $parser (i) {
                     Ok(res) => res,
-                    Err(e) => {
-                        match is_error_handled(&e) {
-                            true => return Err(or_fail_err(e, focalized_error)),
-                            false => return Err(e),
-                        }
-                    }
+                    Err(e) => return Err(update_error_context(e, focalized_error))
                 };
             )*
             Ok((i, $output))
+            
         }
     };
 }
@@ -218,12 +215,7 @@ macro_rules! wsequence {
                 // intercept error to update its context if it should lead to a handled compilation error
                 let (i, $f) = match $parser (i) {
                     Ok(res) => res,
-                    Err(e) => {
-                        match is_error_handled(&e) {
-                            true => return Err(or_fail_err(e, focalized_error)),
-                            false => return Err(e),
-                        }
-                    }
+                    Err(e) => return Err(update_error_context(e, focalized_error))
                 };
                 let (i,_) = strip_spaces_and_comment(i)?;
             )*
@@ -231,11 +223,6 @@ macro_rules! wsequence {
         }
     };
 }
-
-// /// Tool / Trick function to work on a PInput from within the closure macro
-// fn pinput_clone(i: PInput) -> PInput {
-//     i.clone()
-// }
 
 /// Tool function allowing to save last state of parsing offset line before any error
 fn get_focalized_input(i: PInput) -> PInput {
@@ -253,18 +240,17 @@ pub struct PHeader {
     pub version: u32,
 }
 fn pheader(i: PInput) -> PResult<PHeader> {
-    let res = sequence!(
+    sequence!(
         {
             _x: opt(tuple((tag("#!/"), take_until("\n"), newline)));
             _x: or_fail(tag("@format="), || PErrorKind::InvalidFormat);
             version: or_fail(
                 map_res(take_until("\n"), |s: PInput| s.fragment.parse::<u32>()),
-                || PErrorKind::InvalidFormat,
+                || PErrorKind::InvalidFormat
             );
             _x: tag("\n");
         } => PHeader { version }
-    )(i);
-    res
+    )(i)
 }
 
 /// An identifier is a word that contains alphanumeric chars.
@@ -298,10 +284,10 @@ fn penum(i: PInput) -> PResult<PEnum> {
         {
             metadata: pmetadata_list; // metadata unsupported here, check done after 'enum' tag
             global: opt(tag("global")); // TODO at least one space here
-            e:      tag("enum"); // TODO at least one space here
-            _fail:  or_fail(verify(peek(anychar), |_| metadata.is_empty()), || PErrorKind::UnsupportedMetadata(metadata[0].key.into()));
-            name:   or_fail(pidentifier, || PErrorKind::InvalidName(e));
-            b:      tag("{"); // do not fail here, it could still be a mapping
+            e:      or_err(tag("enum"), || PErrorKind::ExpectedReservedWord("enum")); // TODO at least one space here
+            _fail:  or_err(verify(peek(anychar), |_| metadata.is_empty()), || PErrorKind::UnsupportedMetadata(metadata[0].key.into()));
+            name:   or_err(pidentifier, || PErrorKind::InvalidName(e));
+            b:      or_err(tag("{"), || PErrorKind::ExpectedToken("{")); // do not fail here, it could still be a mapping
             items:  separated_nonempty_list(sp(tag(",")), pidentifier);
             _x:     opt(tag(","));
             _x:     or_fail(tag("}"), || PErrorKind::UnterminatedDelimiter(b));
@@ -311,6 +297,7 @@ fn penum(i: PInput) -> PResult<PEnum> {
                 items,
         }
     )(i)
+
 }
 
 /// An enum mapping maps an enum to another one creating the second one in the process.
@@ -328,12 +315,12 @@ fn penum_mapping(i: PInput) -> PResult<PEnumMapping> {
     wsequence!(
         {
             metadata: pmetadata_list; // metadata unsupported here, check done after 'enum' tag
-            e:    tag("enum");// TODO at least one space here
+            e:     tag("enum");// TODO at least one space here
             _fail: or_fail(verify(peek(anychar), |_| metadata.is_empty()), || PErrorKind::UnsupportedMetadata(metadata[0].key.into()));
-            from: or_fail(pidentifier,|| PErrorKind::InvalidName(e));
-            _x:   or_fail(tag("~>"),|| PErrorKind::ExpectedToken("~>"));
-            to:   or_fail(pidentifier,|| PErrorKind::InvalidName(e));
-            b:    or_fail(tag("{"),|| PErrorKind::ExpectedToken("{"));
+            from:  or_fail(pidentifier,|| PErrorKind::InvalidName(e));
+            _x:    or_fail(tag("~>"),|| PErrorKind::ExpectedToken("~>"));
+            to:    or_fail(pidentifier,|| PErrorKind::InvalidName(e));
+            b:     or_fail(tag("{"),|| PErrorKind::ExpectedToken("{"));
             mapping:
                 separated_nonempty_list(
                     sp(tag(",")),
@@ -496,7 +483,6 @@ fn pescaped_string(i: PInput) -> PResult<(Token, String)> {
 /// An unescaped string is a literal string delimited by '"""'.
 /// The token is here to keep position
 fn punescaped_string(i: PInput) -> PResult<(Token, String)> {
-
     sequence!(
         {
             prefix: tag("\"\"\"");
@@ -630,7 +616,7 @@ impl<'src> PValue<'src> {
     }
 }
 fn pvalue(i: PInput) -> PResult<PValue> {
-    let res =alt((
+    alt((
         // Be careful of ordering here
         map(punescaped_string, |(x, y)| PValue::String(x, y)),
         map(pescaped_string, |(x, y)| PValue::String(x, y)),
@@ -638,8 +624,7 @@ fn pvalue(i: PInput) -> PResult<PValue> {
         map(penum_expression, PValue::EnumExpression),
         map(plist, PValue::List),
         map(pstruct, PValue::Struct),
-    ))(i);
-    res
+    ))(i)
 }
 
 /// A metadata is a key/value pair that gives properties to the statement that follows.
@@ -1007,6 +992,7 @@ pub enum PDeclaration<'src> {
     Alias(PAliasDef<'src>),
 }
 fn pdeclaration(i: PInput) -> PResult<PDeclaration> {
+    end_of_pfile(i)?;
     alt((
         map(penum, PDeclaration::Enum),
         map(penum_mapping, PDeclaration::Mapping),
@@ -1017,6 +1003,17 @@ fn pdeclaration(i: PInput) -> PResult<PDeclaration> {
     ))(i)
 }
 
+fn end_of_pfile(i: PInput) -> PResult<()> {
+    let (i, _) = strip_spaces_and_comment(i)?;
+    if i.fragment.len() == 0 {
+        return Err(nom::Err::Error(PError {
+            context: i,
+            kind: PErrorKind::Nom(VerboseError::from_error_kind(i, ErrorKind::Eof))
+        }))
+    }
+    Ok((i, ()))
+}
+
 /// A PFile is the result of a single file parsing
 /// It contains a valid header and top level declarations.
 #[derive(Debug, PartialEq)]
@@ -1025,15 +1022,14 @@ pub struct PFile<'src> {
     pub code: Vec<PDeclaration<'src>>,
 }
 fn pfile(i: PInput) -> PResult<PFile> {
-    let res = all_consuming(sequence!(
+    all_consuming(sequence!(
         {
             header: pheader;
             _x: strip_spaces_and_comment;
-            code: many0(pdeclaration);
+            code: many0(or_fail_perr(pdeclaration));
             _x: strip_spaces_and_comment;
         } => PFile {header, code}
-    ))(i);
-    res
+    ))(i)
 }
 
 // tests must be at the end to be able to test macros

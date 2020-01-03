@@ -80,7 +80,7 @@ impl<I: Clone> ParseError<I> for PError<I> {
     }
 
     /// combines an existing error with a new one created from the input
-    /// positionsition and an [ErrorKind]. This is useful when backtracking
+    /// position and an [ErrorKind]. This is useful when backtracking
     /// through a parse tree, accumulating error context on the way
     fn append(input: I, kind: ErrorKind, other: Self) -> Self {
         match other.kind {
@@ -189,44 +189,72 @@ where
                 context: err.context,
                 kind: e(),
             })),
-            Err(Err::Incomplete(_)) => {
-                println!("INCOMPLET");
-                Err(Err::Failure(PError {
-                context: input,
-                kind: e(),
-            }))},
+            Err(Err::Incomplete(_)) => panic!("Incomplete should never happen"),
             Ok(y) => Ok(y),
         }
     }
 }
 
-/// Same function as `or_fail()` with an additional parameter containing a different error context (previous cursor offset)
-pub fn or_fail_err<'src>(e: nom::Err<PError<PInput<'src>>>, previous_context: PInput<'src>) -> Err<PError<PInput<'src>>>
+/// Similar code than `or_fail()` yet usage and behavior differ:
+/// primarly it is non-blockant as it does not turn Errors into Failures
+/// but rather gives it a PError context (E parameter) therefore updating the generic Nom::ErrorKind
+pub fn or_err<'src, O, F, E>(f: F, e: E) -> impl Fn(PInput<'src>) -> PResult<'src, O>
+where
+    F: Fn(PInput<'src>) -> PResult<'src, O>,
+    E: Fn() -> PErrorKind<PInput<'src>>,
 {
-    match e {
-        Err::Failure(err) => {
-            Err::Failure(PError {
-            context: previous_context,
-            kind: err.kind.clone()
-        })},
-        Err::Error(err) => Err::Failure(PError {
-            context: previous_context,
-            kind: err.kind.clone(),
-        }),
-        Err::Incomplete(_) => panic!("Incomplete should never happen"),
+    move |input| {
+        match f(input) {
+            Err(Err::Failure(err)) => match err.kind {
+                PErrorKind::Nom(_) => Err(Err::Failure(PError {
+                    context: err.context,
+                    kind: e(),
+                })),
+                _ => Err(Err::Failure(err)),
+            },
+            Err(Err::Error(err)) => Err(Err::Error(PError {
+                context: err.context,
+                kind: e(),
+            })),
+            Err(Err::Incomplete(_)) => panic!("Incomplete should never happen"),
+            Ok(y) => Ok(y)
+        }
     }
 }
 
-/// Checks the nature of a nom::Error returned by any parser
-/// Designed to be coupled with `or_fail_err()` to update an unrecoverable (but handled) error context
-/// to output compilation errors more precisely.
-// not totally sure about expected behavior when hitting an Error or Incomplete cases
-// but should probably keep going until an unrecoverable error is encountered
-pub fn is_error_handled(e: &Err<PError<PInput>>) -> bool {
-    // println!("ERR: {:#?}", e);
+/// This function turns our own `Error`s (not nom ones) into `Failure`s so they are properly handled
+/// by the `nom::multi::many0()` function which abstracts Errors, only breaking on failures which was an issue
+pub fn or_fail_perr<'src, O, F>(f: F) -> impl Fn(PInput<'src>) -> PResult<'src, O>
+where
+    F: Fn(PInput<'src>) -> PResult<'src, O>,
+{
+    move |input| {    
+        match f(input) {
+            Err(Err::Failure(e)) => Err(Err::Failure(e)),
+            Err(Err::Error(e)) => match &e.kind {
+                PErrorKind::Nom(_) => Err(Err::Error(PError{
+                    context: e.context,
+                    kind: e.kind
+                })),
+                _ => Err(Err::Failure(e)),
+            },
+            Err(Err::Incomplete(_)) => panic!("Incomplete should never happen"),
+            Ok(y) => Ok(y)
+        }
+    }
+}
+
+/// Tool / Trick function to work on a PInput from within the closure macro
+pub fn update_error_context<'src>(e: Err<PError<PInput<'src>>>, ctx: PInput<'src>) -> Err<PError<PInput<'src>>> {
     match e {
-        Err::Failure(_) => true,
-        Err::Error(_) => false,
+        Err::Failure(err) => Err::Failure(PError {
+            context: ctx,
+            kind: err.kind,
+        }),
+        Err::Error(err) => Err::Error(PError {
+            context: ctx,
+            kind: err.kind,
+        }),
         Err::Incomplete(_) => panic!("Incomplete should never happen"),
     }
 }
