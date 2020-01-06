@@ -244,7 +244,8 @@ where
     }
 }
 
-/// Tool / Trick function to work on a PInput from within the closure macro
+/// Updates content of on error to fit and capture a better context
+/// Solely exists for (w)sequence macro
 pub fn update_error_context<'src>(e: Err<PError<PInput<'src>>>, ctx: PInput<'src>) -> Err<PError<PInput<'src>>> {
     match e {
         Err::Failure(err) => Err::Failure(PError {
