@@ -62,7 +62,7 @@ pub enum PErrorKind<I> {
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct PError<I> {
-    pub context: I,
+    pub context: Option<I>,
     pub kind: PErrorKind<I>,
 }
 
@@ -74,7 +74,7 @@ impl<I: Clone> ParseError<I> for PError<I> {
     /// creates an error from the input position and an [ErrorKind]
     fn from_error_kind(input: I, kind: ErrorKind) -> Self {
         PError {
-            context: input.clone(),
+            context: None,
             kind: PErrorKind::Nom(VerboseError::from_error_kind(input, kind)),
         }
     }
@@ -85,7 +85,7 @@ impl<I: Clone> ParseError<I> for PError<I> {
     fn append(input: I, kind: ErrorKind, other: Self) -> Self {
         match other.kind {
             PErrorKind::Nom(e) => PError {
-                context: input.clone(),
+                context: None,
                 kind: PErrorKind::Nom(VerboseError::append(input, kind, e)),
             },
             _ => other,
@@ -95,7 +95,7 @@ impl<I: Clone> ParseError<I> for PError<I> {
     /// creates an error from an input position and an expected character
     fn from_char(input: I, c: char) -> Self {
         PError {
-            context: input.clone(),
+            context: None,
             kind: PErrorKind::Nom(VerboseError::from_char(input, c)),
         }
     }
@@ -140,14 +140,14 @@ impl<'src> fmt::Display for PError<PInput<'src>> {
         };
 
         // simply removes superfluous line return (prettyfication)
-        let mut err_context = self.context.fragment.to_owned();
+        let mut err_context = self.context.unwrap().fragment.to_owned();
         if err_context.chars().last() == Some('\n') {
             err_context.pop();
         }
         // Formats final error output
         f.write_str(&format!(
             "{}, near '{}'\n{} {}",
-            Token::from(self.context).position_str().bright_yellow(),
+            Token::from(self.context.unwrap()).position_str().bright_yellow(),
             err_context,
             "-->".bright_blue(),
             message.bold(),
@@ -180,13 +180,13 @@ where
             // keep original context when possible
             Err(Err::Failure(err)) => match err.kind {
                 PErrorKind::Nom(_) => Err(Err::Failure(PError {
-                    context: err.context,
+                    context: None,
                     kind: e(),
                 })),
                 _ => Err(Err::Failure(err)),
             },
-            Err(Err::Error(err)) => Err(Err::Failure(PError {
-                context: err.context,
+            Err(Err::Error(_)) => Err(Err::Failure(PError {
+                context: None,
                 kind: e(),
             })),
             Err(Err::Incomplete(_)) => panic!("Incomplete should never happen"),
@@ -207,13 +207,13 @@ where
         match f(input) {
             Err(Err::Failure(err)) => match err.kind {
                 PErrorKind::Nom(_) => Err(Err::Failure(PError {
-                    context: err.context,
+                    context: None,
                     kind: e(),
                 })),
                 _ => Err(Err::Failure(err)),
             },
-            Err(Err::Error(err)) => Err(Err::Error(PError {
-                context: err.context,
+            Err(Err::Error(_)) => Err(Err::Error(PError {
+                context: None,
                 kind: e(),
             })),
             Err(Err::Incomplete(_)) => panic!("Incomplete should never happen"),
@@ -233,7 +233,7 @@ where
             Err(Err::Failure(e)) => Err(Err::Failure(e)),
             Err(Err::Error(e)) => match &e.kind {
                 PErrorKind::Nom(_) => Err(Err::Error(PError{
-                    context: e.context,
+                    context: None,
                     kind: e.kind
                 })),
                 _ => Err(Err::Failure(e)),
@@ -246,16 +246,28 @@ where
 
 /// Updates content of on error to fit and capture a better context
 /// Solely exists for (w)sequence macro
-pub fn update_error_context<'src>(e: Err<PError<PInput<'src>>>, ctx: PInput<'src>) -> Err<PError<PInput<'src>>> {
+pub fn update_error_context<'src>(e: Err<PError<PInput<'src>>>, new_ctx: PInput<'src>) -> Err<PError<PInput<'src>>> {
     match e {
-        Err::Failure(err) => Err::Failure(PError {
-            context: ctx,
-            kind: err.kind,
-        }),
-        Err::Error(err) => Err::Error(PError {
-            context: ctx,
-            kind: err.kind,
-        }),
+        Err::Failure(err) => {
+            let context = match err.context {
+                None => Some(new_ctx),
+                Some(context_to_keep) => Some(context_to_keep)
+            };
+            Err::Failure(PError {
+                context: context,
+                kind: err.kind,
+            })
+        },
+        Err::Error(err) => {
+            let context = match err.context {
+                None => Some(new_ctx),
+                Some(context_to_keep) => Some(context_to_keep)
+            };
+            Err::Error(PError {
+                context,
+                kind: err.kind,
+            })
+        },
         Err::Incomplete(_) => panic!("Incomplete should never happen"),
     }
 }

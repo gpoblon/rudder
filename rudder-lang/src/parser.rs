@@ -1007,7 +1007,7 @@ fn end_of_pfile(i: PInput) -> PResult<()> {
     let (i, _) = strip_spaces_and_comment(i)?;
     if i.fragment.len() == 0 {
         return Err(nom::Err::Error(PError {
-            context: i,
+            context: None,
             kind: PErrorKind::Nom(VerboseError::from_error_kind(i, ErrorKind::Eof))
         }))
     }
