@@ -161,8 +161,8 @@ fn compile(source: &Path, dest: &Path, technique: bool) -> Result<()> {
     let sources = SourceList::new();
     
     // read and add files
-    let corelib = Path::new("data/corelib.rl");
-    let stdlib = Path::new("data/stdlib.rl");
+    let corelib = Path::new("libs/corelib.rl");
+    let stdlib = Path::new("libs/stdlib.rl");
     let filename = source.to_string_lossy();
 
     println!("{} of {}", "Processing compilation".bright_green(), &filename.bright_yellow());

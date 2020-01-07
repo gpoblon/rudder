@@ -11,8 +11,9 @@ Usage:
 """
 
 import configparser
+import os
 cfg = configparser.ConfigParser()
-cfg.read('cfg.ini')
+cfg.read(os.getcwd()+'/tests/helpers/cfg.ini')
 ncf_dir = cfg['default_paths']['ncf']
 cfengine_path = cfg['default_paths']['cfengine']
 
@@ -21,7 +22,6 @@ sys.path.append(ncf_dir+'/tools')
 import ncf
 import codecs
 import json
-import os
 from pprint import pprint
 import docopt
 import re
@@ -35,7 +35,7 @@ def ncf_to_json(cf_file):
   methods_data = ncf.get_all_generic_methods_metadata(ncf_path)
   methods = methods_data["data"]["generic_methods"]
   
-  file='./'+cf_file
+  file=cf_file
   
   with codecs.open(file, encoding="utf-8") as fd:
     content = fd.read()
@@ -82,7 +82,7 @@ def load_cf(file_name):
 
   env = os.environ.copy()
   env['RES_OPTIONS'] = 'attempts:0'
-  out = check_output([ncf.CFENGINE_PATH, "-pjson", "-f", "./"+file_name], env=env)
+  out = check_output([ncf.CFENGINE_PATH, "-pjson", "-f", file_name], env=env)
   try:
     promises = json.loads(out)
   except Exception as e:

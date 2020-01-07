@@ -1,6 +1,6 @@
 {
-    "name": "Configure NTP",
     "version": "1.0",
+    "name": "Configure NTP",
     "description": "test",
     "bundle_name": "Configure_NTP_technique",
     "bundle_args": [],
