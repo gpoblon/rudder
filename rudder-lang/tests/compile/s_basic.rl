@@ -1,7 +1,5 @@
 @format=0
 
-# This file has been generated with rltranslate 
-
 @name="Configure NTP"
 @description="test"
 @version="1.0"
