@@ -191,13 +191,12 @@ macro_rules! sequence {
     ( { $($f:ident : $parser:expr;)* } => $output:expr ) => {
         move |i| {
             $(
-                // save last line (cursor is updated at parser calls). context of an potential error
-                let focalized_error = get_focalized_input(i);
                 // intercept error to update its context if it should lead to a handled compilation error
-                let (i, $f) = match $parser (i) {
+                let (j, $f) = match $parser (i) {
                     Ok(res) => res,
-                    Err(e) => return Err(update_error_context(e, focalized_error))
+                    Err(e) => return Err(update_error_context(e, get_accurate_context(i)))
                 };
+                let i = j;
             )*
             Ok((i, $output))
         }
@@ -209,14 +208,13 @@ macro_rules! wsequence {
     ( { $($f:ident : $parser:expr;)* } => $output:expr ) => {
         move |i| {
             $(
-                // save last line (cursor is updated at parser calls). context of an potential error
-                let focalized_error = get_focalized_input(i);
                 // intercept error to update its context if it should lead to a handled compilation error
-                let (i, $f) = match $parser (i) {
+                let (j, $f) = match $parser (i) {
                     Ok(res) => res,
-                    Err(e) => return Err(update_error_context(e, focalized_error))
+                    Err(e) => return Err(update_error_context(e, get_accurate_context(i)))
                 };
-                let (i,_) = strip_spaces_and_comment(i)?;
+                let (j,_) = strip_spaces_and_comment(j)?;
+                let i = j;
             )*
             Ok((i, $output))
         }
@@ -224,12 +222,12 @@ macro_rules! wsequence {
 }
 
 /// Tool function allowing to save last state of parsing offset line before any error
-fn get_focalized_input(i: PInput) -> PInput {
+fn get_accurate_context(i: PInput) -> PInput {
     // Might be useful to expand via a second parameter the limit pattern or even a function to combine with
-    let err_result: nom::IResult<PInput, PInput> = take_until("\n")(i);
+    let single_line_result: nom::IResult<PInput, PInput> = take_until("\n")(i);
     // return the received input by default
-    let (_next, err_holder) = err_result.unwrap_or((i, i));
-    err_holder
+    let (_next, updated_context) = single_line_result.unwrap_or((i, i));
+    updated_context
 }
 
 /// A source file header consists of a single line '@format=<version>'.
@@ -284,8 +282,8 @@ fn penum(i: PInput) -> PResult<PEnum> {
             metadata: pmetadata_list; // metadata unsupported here, check done after 'enum' tag
             global: opt(tag("global")); // TODO at least one space here
             e:      or_err(tag("enum"), || PErrorKind::ExpectedReservedWord("enum")); // TODO at least one space here
-            _fail:  or_err(verify(peek(anychar), |_| metadata.is_empty()), || PErrorKind::UnsupportedMetadata(metadata[0].key.into()));
-            name:   or_err(pidentifier, || PErrorKind::InvalidName(e));
+            _fail:  or_fail(verify(peek(anychar), |_| metadata.is_empty()), || PErrorKind::UnsupportedMetadata(metadata[0].key.into()));
+            name:   or_fail(pidentifier, || PErrorKind::InvalidName(e));
             b:      or_err(tag("{"), || PErrorKind::ExpectedToken("{")); // do not fail here, it could still be a mapping
             items:  separated_nonempty_list(sp(tag(",")), pidentifier);
             _x:     opt(tag(","));

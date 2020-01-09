@@ -142,10 +142,7 @@ impl<'src> fmt::Display for PError<PInput<'src>> {
         // simply removes superfluous line return (prettyfication)
         match self.context {
             Some(ctx) => {
-                let mut context = ctx.fragment.to_owned();
-                if context.chars().last() == Some('\n') {
-                    context.pop();
-                }
+                let context = ctx.fragment.trim_end_matches('\n');
                 // Formats final error output
                 f.write_str(&format!(
                     "{}, near '{}'\n{} {}",
@@ -204,8 +201,8 @@ where
     }
 }
 
-/// Similar code than `or_fail()` yet usage and behavior differ:
-/// primarly it is non-blockant as it does not turn Errors into Failures
+/// Similar code to `or_fail()` yet usage and behavior differ:
+/// primarly it is non-terminating as it does not turn Errors into Failures
 /// but rather gives it a PError context (E parameter) therefore updating the generic Nom::ErrorKind
 pub fn or_err<'src, O, F, E>(f: F, e: E) -> impl Fn(PInput<'src>) -> PResult<'src, O>
 where
@@ -214,13 +211,7 @@ where
 {
     move |input| {
         match f(input) {
-            Err(Err::Failure(err)) => match err.kind {
-                PErrorKind::Nom(_) => Err(Err::Failure(PError {
-                    context: None,
-                    kind: e(),
-                })),
-                _ => Err(Err::Failure(err)),
-            },
+            Err(Err::Failure(err)) => Err(Err::Failure(err)),
             Err(Err::Error(_)) => Err(Err::Error(PError {
                 context: None,
                 kind: e(),
@@ -253,7 +244,7 @@ where
     }
 }
 
-/// Updates content of on error to fit and capture a better context
+/// Updates content of an error to fit and capture a better context
 /// Solely exists for (w)sequence macro
 pub fn update_error_context<'src>(e: Err<PError<PInput<'src>>>, new_ctx: PInput<'src>) -> Err<PError<PInput<'src>>> {
     match e {
@@ -263,7 +254,7 @@ pub fn update_error_context<'src>(e: Err<PError<PInput<'src>>>, new_ctx: PInput<
                 Some(context_to_keep) => Some(context_to_keep)
             };
             Err::Failure(PError {
-                context: context,
+                context,
                 kind: err.kind,
             })
         },
