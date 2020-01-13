@@ -213,8 +213,7 @@ macro_rules! wsequence {
                     Ok(res) => res,
                     Err(e) => return Err(update_error_context(e, get_accurate_context(i)))
                 };
-                let (j,_) = strip_spaces_and_comment(j)?;
-                let i = j;
+                let (i,_) = strip_spaces_and_comment(j)?;
             )*
             Ok((i, $output))
         }
