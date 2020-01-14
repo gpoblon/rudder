@@ -30,6 +30,11 @@
 
 #![allow(clippy::large_enum_variant)]
 
+#[macro_use]
+extern crate log;
+use log::LevelFilter;
+use core::str::FromStr;
+
 use rudderc::compile::compile_file;
 use rudderc::translate::translate_file;
 use structopt::StructOpt;
@@ -75,11 +80,14 @@ struct Opt {
     #[structopt(long, short)]
     input: PathBuf,
     /// Set to use technique translation mode
-    #[structopt(long)]
+    #[structopt(long, short)]
     translate: bool,
     /// Set to compile a single technique
-    #[structopt(long)]
-    technique: bool,
+    #[structopt(long, short)]
+    compile: bool,
+    /// Set to change default env logger behavior (INFO, DEBUG, ERROR)
+    #[structopt(long, short, default_value = "DEFAULT")]
+    logger: String,
     /// Output format to use
     #[structopt(long, short = "f")]
     output_format: Option<String>,
@@ -87,20 +95,40 @@ struct Opt {
 
 // TODO use termination
 fn main() {
+    
     // easy option parsing
     let opt = Opt::from_args();
+    
+    set_env_logger(&opt.logger);
 
     if opt.translate {
         match translate_file(&opt.input, &opt.output) {
-            Err(e) => eprintln!("{}", e),
-            Ok(_) => println!("{} {}", "File translation".bright_green(), "OK".bright_cyan()),
+            Err(e) => error!("{}", e),
+            Ok(_) => info!("{} {}", "File translation".bright_green(), "OK".bright_cyan()),
         }
     } else {
-        match compile_file(&opt.input, &opt.output, opt.technique) {
-            Err(e) => eprintln!("{}", e),
-            Ok(_) => println!("{} {}", "Compilation".bright_green(), "OK".bright_cyan()),
+        debug!("Hm... I shoud end up here if I am compiling");
+        match compile_file(&opt.input, &opt.output, opt.compile) {
+            Err(e) => error!("{}", e),
+            Ok(_) => info!("{} {}", "Compilation".bright_green(), "OK".bright_cyan()),
         }
     }
+}
+
+/// Adds verbose levels: OFF ERROR (WARN) INFO DEBUG (TRACE). For example INFO includes ERROR, DEBUG includes INFO and ERROR
+/// The level is set through program arguments. Default is Warn
+/// run the program with `-l INFO` (eq. `--logger INFO`) option argument
+fn set_env_logger(log_level_str: &str) {
+    let log_level = match LevelFilter::from_str(log_level_str) {
+        Ok(level) => level,
+        Err(_) => LevelFilter::Warn 
+    };
+    env_logger::Builder::new()
+    .filter(None, log_level)
+    .format_timestamp(None)
+    .format_level(false)
+    .format_module_path(false)
+    .init();
 }
 
 // Phase 2
