@@ -3,3 +3,4 @@
 *.iml
 /.idea
 /test/tmp
+/test/targets/*
