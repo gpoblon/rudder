@@ -10,6 +10,9 @@
 /// example of files that should succeed: s_errors.rl s_errors.rl.cf
 // TODO: cf files added (solely in case of success) for later use: comparing it to generated output (.rl.cf)
 
+#[macro_use]
+extern crate log;
+
 use std::{
     fs,
     io::Error,
@@ -92,7 +95,7 @@ fn test_toml(toml_file: toml::Value) -> Result<(), Error> {
                 let result = test_file(&path);
                 match should_compile(&path) {
                     Some(is_success) => assert_eq!(result.is_ok(), is_success),
-                    None => println!("{}: could not test  {:?}", "Warning (test)".bright_yellow().bold(), path.to_str().unwrap().bright_yellow()),
+                    None => panic!("{}: could not test  {:?}", "Warning (test)".bright_yellow().bold(), path.to_str().unwrap().bright_yellow()),
                 }
                 fs::remove_file(path).expect("Could not delete temporary file");
             }
@@ -108,11 +111,11 @@ fn real_files() -> Result<(), Error> {
     let file_paths = fs::read_dir("tests/compile")?;
     for file_entry in file_paths {
         let path: &Path= &file_entry?.path();
-        if path.extension() == Some(OsStr::new("rs")) {
+        if path.extension() == Some(OsStr::new("rl")) {
             let result = test_file(path);
             match should_compile(path) {
                 Some(is_success) => assert_eq!(result.is_ok(), is_success),
-                None => println!("{}: could not test  {:?}", "Warning (test)".bright_yellow().bold(), path.to_str().unwrap().bright_yellow()),
+                None => panic!("{}: could not test  {:?}", "Warning (test)".bright_yellow().bold(), path.to_str().unwrap().bright_yellow()),
             }
         }
     }
@@ -144,11 +147,11 @@ fn test_file(path: &Path) -> Result<(), String> {
     let filename = path.to_str().unwrap();
     match rudderc::compile::compile_file(path, path, false) {
         Err(rudderc::error::Error::User(e)) => {
-            println!("{}: compilation of {} failed: {}", "Error (test)".bright_red().bold(), filename.bright_yellow(), e);
+            error!("{}: compilation of {} failed: {}", "Error (test)".bright_red().bold(), filename.bright_yellow(), e);
             return Err(e)
         },
         Ok(_) => {
-            println!("{}: compilation of {}", "Success (test)".bright_green().bold(), filename.bright_yellow());
+            info!("{}: compilation of {}", "Success (test)".bright_green().bold(), filename.bright_yellow());
             return Ok(())
         },
         _ => panic!("What kind of error is this ?"),
