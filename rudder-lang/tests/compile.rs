@@ -54,9 +54,19 @@ static TESTS: &'static [(&str, bool, &str)] = &[
     ),
 ];
 
+macro_rules! add_test {
+    ( $name: ident ) => {
+        #[test]
+        fn $name() {
+            panic!("IT WORKS!");
+        }
+    };
+}
+
 #[test]
 // Tests statically string-defined "files"
 fn raw_filestrings() -> Result<(), Error> {
+    add_test!("working");
     fs::create_dir_all("tests/tmp")?;
     let tests: Vec<(&str, bool, &str)> = TESTS.iter().cloned().collect();
     for (filename, is_ok, content) in tests {

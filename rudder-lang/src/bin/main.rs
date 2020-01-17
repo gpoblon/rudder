@@ -32,6 +32,11 @@
 
 #[macro_use]
 extern crate log;
+<<<<<<< HEAD
+=======
+use log::LevelFilter;
+use core::str::FromStr;
+>>>>>>> 37622c9a86c72ca0b73d47c4d318839ac87f08be
 
 use rudderc::compile::compile_file;
 use rudderc::translate::translate_file;
@@ -113,12 +118,16 @@ fn main() {
     }
 }
 
-/// Adds 3 verbose levels: ERROR INFO DEBUG. INFO includes ERROR too, DEBUG includes INFO and ERROR too
-/// The level is set through the ENV, therefore it can be set for this process by either 
-/// run the program with `RUST_LOG=INFO cargo run`... or using the `-l INFO` (eq. `--logger INFO`) option argument
-fn set_env_logger(log_level: &str) {
-    std::env::set_var("RUST_LOG", log_level);
-    env_logger::builder()
+/// Adds verbose levels: OFF ERROR (WARN) INFO DEBUG (TRACE). For example INFO includes ERROR, DEBUG includes INFO and ERROR
+/// The level is set through program arguments. Default is Warn
+/// run the program with `-l INFO` (eq. `--logger INFO`) option argument
+fn set_env_logger(log_level_str: &str) {
+    let log_level = match LevelFilter::from_str(log_level_str) {
+        Ok(level) => level,
+        Err(_) => LevelFilter::Warn 
+    };
+    env_logger::Builder::new()
+    .filter(None, log_level)
     .format_timestamp(None)
     .format_level(false)
     .format_module_path(false)
