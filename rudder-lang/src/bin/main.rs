@@ -34,10 +34,12 @@
 extern crate log;
 use log::LevelFilter;
 use core::str::FromStr;
+use std::io::Write;
 
 use rudderc::compile::compile_file;
 use rudderc::translate::translate_file;
 use structopt::StructOpt;
+use colored;
 use colored::Colorize;
 use std::path::PathBuf;
 
@@ -86,11 +88,11 @@ struct Opt {
     #[structopt(long, short)]
     compile: bool,
     /// Set to change default env logger behavior (INFO, DEBUG, ERROR)
-    #[structopt(long, short, default_value = "DEFAULT")]
-    logger: String,
-    /// Output format to use
-    #[structopt(long, short = "f")]
-    output_format: Option<String>,
+    #[structopt(long, short)]
+    logger: Option<String>,
+    /// Output format to use: standard terminal or json style
+    #[structopt(long)]
+    json: bool,
 }
 
 // TODO use termination
@@ -99,7 +101,14 @@ fn main() {
     // easy option parsing
     let opt = Opt::from_args();
     
-    set_env_logger(&opt.logger);
+    // prevents any output stylization from the colored crate
+    if opt.json {
+        colored::control::set_override(false);
+    }
+
+    if let Some(log) = opt.logger {
+        set_logger(&log, opt.json);
+    } 
 
     if opt.translate {
         match translate_file(&opt.input, &opt.output) {
@@ -118,18 +127,41 @@ fn main() {
 /// Adds verbose levels: OFF ERROR (WARN) INFO DEBUG (TRACE). For example INFO includes ERROR, DEBUG includes INFO and ERROR
 /// The level is set through program arguments. Default is Warn
 /// run the program with `-l INFO` (eq. `--logger INFO`) option argument
-fn set_env_logger(log_level_str: &str) {
+fn set_logger(log_level_str: &str, is_json: bool) {
     let log_level = match LevelFilter::from_str(log_level_str) {
         Ok(level) => level,
         Err(_) => LevelFilter::Warn 
     };
-    env_logger::Builder::new()
-    .filter(None, log_level)
+    let mut builder = env_logger::Builder::new();
+    if is_json {
+        // Note: record .file() and line() allow to get the origin of the print
+        builder.format(|buf, record| {
+            // writeln!(buf, "{{\n\t\"log level\": \"{}\",\n\t\"message\": \"{}\",\n\t\"ts\": \"{}\"\n}}",
+            writeln!(buf, r#"{{
+    "log level": "{}",
+    "message": "{}",
+    "ts": "{}"
+}}"#,
+            record.level().to_string().to_ascii_lowercase(),
+            record.args().to_string(),
+            buf.timestamp())
+        });
+    }
+    builder.filter(None, log_level)
     .format_timestamp(None)
     .format_level(false)
     .format_module_path(false)
     .init();
 }
+
+// fn set_fmt(is_json: bool, buf: &mut Formatter, record: &Record) -> std::io::Result<()> {
+//     // if is_json == false {
+//         writeln!(buf, "{}: {}",
+//         record.level(),
+//         record.args());
+//     // }
+//     Ok(())
+// }    
 
 // Phase 2
 // - function, measure(=fact), action
