@@ -1,6 +1,6 @@
 /*
 *************************************************************************************
-* Copyright 2018 Normation SAS
+* Copyright 2020 Normation SAS
 *************************************************************************************
 *
 * This file is part of Rudder.
@@ -35,37 +35,33 @@
 *************************************************************************************
 */
 
+package bootstrap.liftweb.checks
 
-package com.normation.rudder.web.snippet.administration
+import bootstrap.liftweb.BootstrapChecks
+import bootstrap.liftweb.BootstrapLogger
+import com.normation.rudder.services.nodes.NodeInfoService
+import com.normation.rudder.services.reports.CachedFindRuleNodeStatusReports
+import javax.servlet.UnavailableException
+import com.normation.box._
+import net.liftweb.common.EmptyBox
 
-import net.liftweb.common.Loggable
-import net.liftweb.http.js.JsCmd
-import net.liftweb.http.{DispatchSnippet, IdMemoizeTransform, S, SHtml}
-import net.liftweb.util.Helpers._
+/**
+ * At stratup, we preload node compliance cache
+ */
+class LoadNodeComplianceCache(nodeInfoService: NodeInfoService, reportingService: CachedFindRuleNodeStatusReports) extends BootstrapChecks {
 
-import scala.xml.NodeSeq
-import scala.xml.Text
+  override val description = "Load node compliance cache"
 
-
-class DebugScript extends DispatchSnippet with Loggable {
-
-  def dispatch = {
-    case "render" => launchDebugScript
-  }
-
-    def launchDebugScript : IdMemoizeTransform = SHtml.idMemoize { outerXml =>
-
-      // our process method returns a
-      // JsCmd which will be sent back to the browser
-      // as part of the response
-      def process(): JsCmd = {
-        S.redirectTo("/secure/api/system/debug/info")
-      }
-
-      //process the list of networks
-      "#launchDebugScriptButton" #> {
-        SHtml.ajaxButton( (<span class="fa fa-download"></span>: NodeSeq) ++ Text(" Download debug information"), process _ ,("class","btn btn-primary"))
-      }
+  @throws(classOf[ UnavailableException ])
+  override def checks() : Unit = {
+    (for {
+      nodeIds <- nodeInfoService.getAll().map(_.keySet)
+      _       <- reportingService.invalidate(nodeIds).toBox
+    } yield ()) match {
+      case eb: EmptyBox =>
+        val err = eb ?~! s"Error when loading node compliance cache:"
+        BootstrapLogger.warn(err.messageChain)
+      case _ => // ok
     }
-
+  }
 }

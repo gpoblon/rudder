@@ -148,7 +148,7 @@ trait PromiseGenerationService {
     val rootNodeId = Constants.ROOT_POLICY_SERVER_ID
     //we need to add the current environment variables to the script context
     //plus the script environment variables used as script parameters
-    import scala.collection.JavaConverters._
+    import scala.jdk.CollectionConverters._
     val systemEnv = HookEnvPairs.build(System.getenv.asScala.toSeq:_*)
 
 
@@ -529,7 +529,7 @@ trait PromiseGenerationService {
       nodeIds               : Set[NodeId]
     , allNodeInfos          : Map[NodeId, NodeInfo]
     , allGroups             : FullNodeGroupCategory
-    , globalParameters      : Seq[GlobalParameter]
+    , globalParameters      : List[GlobalParameter]
     , globalAgentRun        : AgentRunInterval
     , globalComplianceMode  : ComplianceMode
     , globalPolicyMode      : GlobalPolicyMode
@@ -715,7 +715,7 @@ class PromiseGenerationServiceImpl (
       Thread.sleep(50)
     }
 
-    Full(Unit)
+    Full(())
   }
 }
 
@@ -785,7 +785,7 @@ trait PromiseGeneration_BuildNodeContext {
       nodeIds               : Set[NodeId]
     , allNodeInfos          : Map[NodeId, NodeInfo]
     , allGroups             : FullNodeGroupCategory
-    , globalParameters      : Seq[GlobalParameter]
+    , globalParameters      : List[GlobalParameter]
     , globalAgentRun        : AgentRunInterval
     , globalComplianceMode  : ComplianceMode
     , globalPolicyMode      : GlobalPolicyMode
@@ -803,8 +803,8 @@ trait PromiseGeneration_BuildNodeContext {
      *   - to node info parameters: ok
      *   - to parameters : hello loops!
      */
-    def buildParams(parameters: Seq[GlobalParameter]): IOResult[Map[ParameterName, InterpolationContext => IOResult[String]]] = {
-      parameters.accumulate { param =>
+    def buildParams(parameters: List[GlobalParameter]): PureResult[Map[ParameterName, InterpolationContext => PureResult[String]]] = {
+      parameters.accumulatePure { param =>
         for {
           p <- interpolatedValueCompiler.compile(param.value).chainError(s"Error when looking for interpolation variable in global parameter '${param.name}'")
         } yield {
@@ -1041,7 +1041,7 @@ object BuildNodeConfiguration extends Loggable {
                                  */
                                 parameters     <- context.parameters.accumulate { case (name, param) =>
                                                     for {
-                                                      p <- param(context)
+                                                      p <- param(context).toIO
                                                     } yield {
                                                       (name, p)
                                                     }
@@ -1057,7 +1057,7 @@ object BuildNodeConfiguration extends Loggable {
                                                       ret        <- (for {
                                                                       //bind variables with interpolated context
                                                                       t2_0              <- nanoTime
-                                                                      expandedVariables <- draft.variables(context)
+                                                                      expandedVariables <- draft.variables(context).toIO
                                                                       t2_1              <- nanoTime
                                                                       _                 <- counters.sumTimeExpandeVar.update(_ + t2_1 - t2_0)
                                                                       // And now, for each variable, eval - if needed - the result
@@ -1251,7 +1251,7 @@ trait PromiseGeneration_updateAndWriteRule extends PromiseGenerationService {
      * to not have it, but it simplifie case.
      *
      */
-    val nodeConfigIds = allNodeConfigs.filterKeys(updatedNodes.contains).values.map { nodeConfig =>
+    val nodeConfigIds = allNodeConfigs.view.filterKeys(updatedNodes.contains).values.map { nodeConfig =>
       (nodeConfig.nodeInfo.id, NodeConfigId(hash(NodeConfigurationHash(nodeConfig, generationTime))))
     }.toMap
 
@@ -1290,7 +1290,7 @@ trait PromiseGeneration_updateAndWriteRule extends PromiseGenerationService {
 
       // #10625 : that should be one logic-level up (in the main generation for loop)
 
-      toCache    =  allNodeConfigs.filterKeys(updated.keySet.contains(_)).values.toSet
+      toCache    =  allNodeConfigs.view.filterKeys(updated.contains(_)).values.toSet
       _          <- nodeConfigurationService.save(toCache.map(x => NodeConfigurationHash(x, generationTime)))
       ldapWrite1 =  (DateTime.now.getMillis - ldapWrite0)
       _          =  PolicyGenerationLogger.timing.debug(s"Node configuration cached in LDAP in ${ldapWrite1} ms")
@@ -1334,7 +1334,7 @@ trait PromiseGeneration_setExpectedReports extends PromiseGenerationService {
   }
 
   override def invalidateComplianceCache(nodeIds: Set[NodeId]): Unit = {
-    complianceCache.invalidate(nodeIds)
+    complianceCache.invalidate(nodeIds).runNow
   }
 
   override def saveExpectedReports(
@@ -1498,7 +1498,7 @@ trait PromiseGeneration_Hooks extends PromiseGenerationService with PromiseGener
    * plugins hooks
    */
   override def beforeDeploymentSync(generationTime: DateTime): Box[Unit] = {
-    sequence(codeHooks) { _.beforeDeploymentSync(generationTime) }.map( _ => () )
+    sequence(codeHooks.toSeq) { _.beforeDeploymentSync(generationTime) }.map( _ => () )
   }
 
   /*
@@ -1595,7 +1595,7 @@ trait PromiseGeneration_Hooks extends PromiseGenerationService with PromiseGener
     // format of date in the file
     def date(d: DateTime) = d.toString(ISODateTimeFormat.basicDateTime())
     // how to format a list of ids in the file
-    def formatIds(ids: Seq[String]) = '(' + ids.mkString("\n", "\n","\n") + ')'
+    def formatIds(ids: Seq[String]) = "(" + ids.mkString("\n", "\n","\n") + ")"
 
     implicit val openOptions = File.OpenOptions.append
     implicit val charset = StandardCharsets.UTF_8

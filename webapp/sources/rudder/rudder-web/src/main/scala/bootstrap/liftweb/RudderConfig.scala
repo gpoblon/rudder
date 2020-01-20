@@ -1054,7 +1054,7 @@ object RudderConfig extends Loggable {
 
     // this one must be in a fork thread pool
     ZioRuntime.internal.unsafeRunAsync(IOResult.effect {
-      import scala.collection.JavaConverters._
+      import scala.jdk.CollectionConverters._
       val config = RudderProperties.config
       if(ApplicationLogger.isInfoEnabled) {
         //sort properties by key name
@@ -1773,6 +1773,7 @@ object RudderConfig extends Loggable {
         , RUDDER_JDBC_BATCH_MAX_SIZE
       )
     , nodeInfoServiceImpl
+    , RUDDER_JDBC_BATCH_MAX_SIZE // use same size as for SQL requests
   )
 
   private[this] lazy val pgIn = new PostgresqlInClause(70)
@@ -1977,6 +1978,7 @@ object RudderConfig extends Loggable {
     , new CreateSystemToken(roLDAPApiAccountRepository.systemAPIAccount)
     , new CheckApiTokenAutorizationKind(rudderDit, rwLdap)
     , new CheckNashornWarning()
+    , new LoadNodeComplianceCache(nodeInfoService, reportingServiceImpl)
   )
 
   //////////////////////////////////////////////////////////////////////////////////////////
