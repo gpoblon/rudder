@@ -40,76 +40,45 @@
 /// example of files that should succeed: s_errors.rl s_errors.rl.cf
 // TODO: compare both result and generated output (.rl.cf) in separated tests
 
-#[macro_use]
-extern crate lazy_static;
+// Note that any file not deleted in the `tests/tmp/` folder is a file that does not fulfill the assertion
+
 mod compile_utils;
 use compile_utils::*;
-use std::collections::HashMap;
-use colored::Colorize;
+
 use test_case::test_case;
 
-// ======= Tests every file listed below, from the */compile* folder =======
+// ======= Tests every file listed below, from the */compile* folder ======= //
+
 #[test_case("f_enum")]
-#[test_case("f_fuzzy")] // should_fail
+#[test_case("f_fuzzy")]
 #[test_case("s_basic")]
-#[test_case("s_does_not_exist")] // should fail
+#[test_case("s_does_not_exist")]
 fn real_files(filename: &str) {
     test_real_file(filename);
 }
 
-// ======= Tests every raw string listed below =======
-// List of temporary test files: an array of tuples `(filename, content)`
-// Format is not totally correct since there are several superfluous whitespaces but these are trimmmed by the parser
-lazy_static! {
-    static ref MAPPED_VIRTUAL_FILES: HashMap<&'static str, &'static str> = [
-        (
-            "s_purest",
-            r#"@format=0
-            "#
-        ),
-        (
-            "f_enm",
-            r#"@format=0
-            enm error {
-                ok,
-                err
-            }"#
-        ),
-        (
-            "s_enum",
-            r#"@format=0
-            enum success {
-                ok,
-                err
-            }"#
-        ),
-        (
-            "v_enum",
-            r#"@format=0
-            enum success {
-                ok,
-                err
-            }"#
-        ),
-    ].iter().cloned().collect();
-}
+// ======= Tests every raw string listed below ======= //
 
-// add any new entry to the tests by adding a test_case line on the top of the following
-// comment any line to skip the corresponding test
-#[test_case("s_purest")]
-#[test_case("f_enm")]
-#[test_case("s_enum")]
-#[test_case("v_enum")]
-#[test_case("f_does_not_exist")]
-fn generated_files(filename: &str) {
-    match MAPPED_VIRTUAL_FILES.get(filename) {
-        Some(content) => test_generated_file(filename, content),
-        None => panic!(
-            format!(
-                "{}: {} does not match any lazy map element",
-                "Warning (test)".bright_yellow().bold(),
-                filename.bright_yellow()
-            )
-        )
-    };
+#[test_case("s_purest", "@format=0\n")]
+
+#[test_case("f_enm", r#"@format=0
+enm error {
+    ok,
+    err
+}"#)]
+
+#[test_case("s_enum", r#"@format=0
+enum success {
+    ok,
+    err
+}"#)]
+
+#[test_case("v_enum", r#"@format=0
+enum success {
+    ok,
+    err
+}"#)]
+
+fn generated_files(filename: &str, content: &str) {
+    test_generated_file(filename, content);
 }
