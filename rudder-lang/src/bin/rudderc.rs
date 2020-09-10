@@ -20,7 +20,13 @@ use log::*;
 use std::process::exit;
 use structopt::StructOpt;
 
-use rudderc::{compile::compile_file, io, logger::Logger, opt::Opt, technique::generate, Action};
+use rudderc::{
+    compile::compile_file,
+    migrate::migrate,
+    opt::Opt,
+    technique::{generate_technique, read_technique},
+    Action,
+};
 
 // MAIN
 
@@ -80,11 +86,11 @@ fn main() {
     let result = match action {
         Action::Compile => compile_file(&ctx, true),
         // TODO Migrate: call cf_to_json perl script then call json->rl == Technique generate()
-        Action::Migrate => unimplemented!(),
+        Action::Migrate => migrate(&ctx),
         // TODO: rl -> json + add a json wrapper : { data: {}, errors: {}}
-        Action::ReadTechnique => unimplemented!(),
+        Action::ReadTechnique => read_technique(&ctx),
         // TODO Generate: call technique generate then compile into all formats + json wrapper: { rl: "", dsc: "", cf: "", errors:{} }
-        Action::GenerateTechnique => unimplemented!(),
+        Action::GenerateTechnique => generate_technique(&ctx),
     };
     match &result {
         Err(e) => error!("{}", e),

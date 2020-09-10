@@ -66,7 +66,7 @@ pub fn technique_to_ir<'src>(
     Ok(ir2)
 }
 
-/// Compile a file from rudder-lang to cfengine
+/// Compile a file from rudder-lang to cfengine / dsc / json
 pub fn compile_file(ctx: &IOContext, technique: bool) -> Result<()> {
     let sources = Arena::new();
     let ir = technique_to_ir(ctx, &sources)?;

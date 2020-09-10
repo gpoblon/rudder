@@ -2,6 +2,10 @@
 // SPDX-FileCopyrightText: 2019-2020 Normation SAS
 
 mod from_ir;
+mod generate;
+pub use generate::generate_technique;
+mod read;
+pub use read::read_technique;
 
 use crate::{
     cfstrings,
@@ -49,7 +53,7 @@ where
 }
 
 /// Every Technique substructure has only 1 purpose: represent a Technique as json or rudderlang string
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Default)]
 pub struct Technique {
     r#type: String,
     #[serde(serialize_with = "string_into_u8", deserialize_with = "string_from_u8")]
@@ -57,6 +61,11 @@ pub struct Technique {
     data: TechniqueData,
 }
 impl Technique {
+    pub fn new() -> Self {
+        Self {
+            r#type: String::new(),
+        }
+    }
     /// creates a Technique that will be used to generate a string representation of a rudderlang or json technique
     fn from_json(context: &IOContext) -> Result<Self> {
         let input_path = &context.input.to_string_lossy();
@@ -101,7 +110,7 @@ impl Technique {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Default)]
 pub struct TechniqueData {
     bundle_name: String,
     description: String,
@@ -184,7 +193,7 @@ impl InterpolatedParameter {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Default)]
 pub struct MethodCall {
     #[serde(default)]
     parameters: Vec<Value>,

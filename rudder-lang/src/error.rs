@@ -21,9 +21,7 @@ const FUZZY_THRESHOLD: f32 = 0.5; // pub + `crate::` before calling since it may
 
 #[derive(Clone)]
 pub enum Error {
-    //   message  backtrace
     User((String, Option<Backtrace>)),
-    //   Error list, for now it does not have backtrace
     List(Vec<(String, Option<Backtrace>)>),
 }
 

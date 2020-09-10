@@ -13,6 +13,7 @@ pub mod compile;
 pub mod generator;
 pub mod io;
 mod ir;
+pub mod migrate;
 pub mod opt;
 pub use generator::Format;
 pub mod cfstrings;

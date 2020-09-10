@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // SPDX-FileCopyrightText: 2019-2020 Normation SAS
 
-use crate::{error::*, generator::Format, io::IOContext, logger::Logger, Action};
+use crate::{error::Result, generator::Format, io::IOContext, logger::Logger, Action};
 use log::LevelFilter;
 use std::path::PathBuf;
 use structopt::StructOpt;
@@ -36,8 +36,8 @@ pub enum Opt {
         json_log: bool,
 
         /// Enforce a compiler output format (overrides configuration format)
-        /// Handled formats: [ "cf" (alias "cfengine"), "dsc" ]
-        #[structopt(long, short, possible_values = &["cf", "cfengine", "dsc"])]
+        /// Handled formats: [ "cf" (alias "cfengine"), "dsc", "json" ]
+        #[structopt(long, short, possible_values = &["cf", "cfengine", "dsc", "json"])]
         format: Option<Format>,
     },
 }
