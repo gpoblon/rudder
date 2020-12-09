@@ -6,7 +6,7 @@ use nom::{
     Slice,
 };
 
-use super::{error::*, token::*};
+use super::{error::*, pmetadata_list, token::*};
 
 pub fn strip_comment(i: PInput) -> PResult<PInput> {
     // simple comments (ie # but not ##)

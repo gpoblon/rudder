@@ -468,7 +468,7 @@ mod tests {
             "let c2 = case { X => \"val\", Y => \"val2\" }\n",
         );
 
-        parse_str_ok(&mut source, "ext1", "v=if X => \"val\"\n");
+        // parse_str_ok(&mut source, "ext1", "v=if X => \"val\"\n");
     }
 
     /// - default values are guaranteed to be constant
