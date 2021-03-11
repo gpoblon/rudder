@@ -152,6 +152,7 @@ fn value_to_string(value: &Value, method_name: &str, string_delim: bool) -> Resu
         ),
         Value::Struct(s) => unimplemented!(),
         Value::EnumExpression(_e) => unimplemented!(),
+        Value::Variable(_t) => unimplemented!(), // resolve with context
     })
 }
 

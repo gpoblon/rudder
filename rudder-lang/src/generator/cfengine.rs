@@ -7,7 +7,7 @@ use crate::{
     error::*,
     generator::cfengine::syntax::{quoted, Bundle, Method, Policy, Promise, MAX_INT, MIN_INT},
     generator::Format,
-    ir::{enums::EnumExpressionPart, ir2::IR2, resource::*, value::*},
+    ir::{enums::EnumExpressionPart, ir2::IR2, resource::*, value::*, variable::VariableDef},
     parser::*,
     // generator::cfengine::syntax::{quoted, Bundle, Method, Policy, Promise},
     // ir::{enums::EnumExpressionPart, resource::*, value::*, *},
@@ -137,6 +137,8 @@ impl CFEngine {
     fn format_statement(
         &mut self,
         gc: &IR2,
+        res_def: &ResourceDef,
+        state_def: &StateDef,
         st: &Statement,
         in_class: String,
     ) -> Result<Vec<Promise>> {
@@ -147,10 +149,23 @@ impl CFEngine {
                     _ => "any".to_string(),
                 };
 
+                // get variables to try to get the proper parameter value
+                let mut variables: HashMap<&Token, &VariableDef> = HashMap::new();
+                for st_from_list in &state_def.statements {
+                    // variables declared after the current statemnt are not defined at this point
+                    if st_from_list == st {
+                        break;
+                    } else if let Statement::VariableDefinition(v) = st_from_list {
+                        variables.insert(&v.name, v);
+                    }
+                }
+                variables.extend(res_def.variable_definitions.get());
+                variables.extend(&gc.variable_definitions);
+
                 // TODO setup mode and output var by calling ... bundle
                 let parameters =
                     fetch_method_parameters(gc, &var.to_method(), |_name, value, _metadatas| {
-                        self.value_to_string(value, true)
+                        self.value_to_string(value, Some(&variables), true)
                     })
                     .into_iter()
                     .collect::<Result<Vec<String>>>()?;
@@ -162,7 +177,7 @@ impl CFEngine {
                 let class_param = var
                     .resource_params
                     .get(class_param_index)
-                    .and_then(|p| self.value_to_string(&p, false).ok())
+                    .and_then(|p| self.value_to_string(&p, Some(&variables), false).ok())
                     .unwrap_or_else(|| "".to_string());
 
                 Ok(Method::new()
@@ -181,16 +196,28 @@ impl CFEngine {
 
                 let component = match sd.metadata.get("component") {
                     Some(TomlValue::String(s)) => s.to_owned(),
-                    // TODO what is the any component ?
                     _ => "any".to_string(),
                 };
+
+                // get variables to try to get the proper parameter value
+                let mut variables: HashMap<&Token, &VariableDef> = HashMap::new();
+                for st_from_list in &state_def.statements {
+                    // variables declared after the current statemnt are not defined at this point
+                    if st_from_list == st {
+                        break;
+                    } else if let Statement::VariableDefinition(v) = st_from_list {
+                        variables.insert(&v.name, v);
+                    }
+                }
+                variables.extend(res_def.variable_definitions.get());
+                variables.extend(&gc.variable_definitions);
 
                 // TODO setup mode and output var by calling ... bundle
                 let parameters = sd
                     .resource_params
                     .iter()
                     .chain(sd.state_params.iter())
-                    .map(|x| self.value_to_string(x, true))
+                    .map(|x| self.value_to_string(x, Some(&variables), true))
                     .collect::<Result<Vec<String>>>()?;
 
                 let method_name = &format!("{}-{}", sd.resource.fragment(), sd.state.fragment());
@@ -202,7 +229,7 @@ impl CFEngine {
                 let class_param = sd
                     .resource_params
                     .get(class_param_index)
-                    .and_then(|p| self.value_to_string(&p, false).ok())
+                    .and_then(|p| self.value_to_string(&p, Some(&variables), false).ok())
                     .unwrap_or_else(|| "".to_string());
 
                 Ok(Method::new()
@@ -229,7 +256,13 @@ impl CFEngine {
                 for (case, vst) in vec {
                     let case_exp = self.format_case_expr(gc, &case.expression)?;
                     for st in vst {
-                        res.append(&mut self.format_statement(gc, st, case_exp.clone())?);
+                        res.append(&mut self.format_statement(
+                            gc,
+                            res_def,
+                            state_def,
+                            st,
+                            case_exp.clone(),
+                        )?);
                     }
                 }
                 Ok(res)
@@ -237,14 +270,17 @@ impl CFEngine {
             Statement::Fail(msg) => Ok(vec![Promise::usebundle(
                 "_abort",
                 None,
-                vec![quoted("policy_fail"), self.value_to_string(msg, true)?],
+                vec![
+                    quoted("policy_fail"),
+                    self.value_to_string(msg, None, true)?,
+                ],
             )]),
             Statement::LogDebug(msg) => Ok(vec![Promise::usebundle(
                 "log_rudder_mode",
                 None,
                 vec![
                     quoted("log_debug"),
-                    self.value_to_string(msg, true)?,
+                    self.value_to_string(msg, None, true)?,
                     quoted("None"),
                     // TODO: unique class prefix
                     quoted("log_debug"),
@@ -255,7 +291,7 @@ impl CFEngine {
                 None,
                 vec![
                     quoted("log_info"),
-                    self.value_to_string(msg, true)?,
+                    self.value_to_string(msg, None, true)?,
                     quoted("None"),
                     // TODO: unique class prefix
                     quoted("log_info"),
@@ -266,7 +302,7 @@ impl CFEngine {
                 None,
                 vec![
                     quoted("log_warn"),
-                    self.value_to_string(msg, true)?,
+                    self.value_to_string(msg, None, true)?,
                     quoted("None"),
                     // TODO: unique class prefix
                     quoted("log_warn"),
@@ -292,7 +328,12 @@ impl CFEngine {
         }
     }
 
-    fn value_to_string(&self, value: &Value, string_delim: bool) -> Result<String> {
+    fn value_to_string(
+        &self,
+        value: &Value,
+        variables: Option<&HashMap<&Token, &VariableDef>>,
+        string_delim: bool,
+    ) -> Result<String> {
         let delim = if string_delim { "\"" } else { "" };
         Ok(match value {
             Value::String(s) => format!(
@@ -331,16 +372,38 @@ impl CFEngine {
             Value::EnumExpression(_e) => unimplemented!(),
             Value::List(l) => format!(
                 "[ {} ]",
-                map_strings_results(l.iter(), |x| self.value_to_string(x, true), ",")?
+                map_strings_results(l.iter(), |x| self.value_to_string(x, None, true), ",")?
             ),
             Value::Struct(s) => format!(
                 "{{ {} }}",
                 map_strings_results(
                     s.iter(),
-                    |(x, y)| Ok(format!(r#""{}":{}"#, x, self.value_to_string(y, true)?)),
+                    |(x, y)| Ok(format!(
+                        r#""{}":{}"#,
+                        x,
+                        self.value_to_string(y, None, true)?
+                    )),
                     ","
                 )?
             ),
+            Value::Variable(v) => {
+                if let Some(variables) = variables {
+                    if let Some(var) = variables.get(v).and_then(|var_def| {
+                        var_def
+                            .value
+                            .first_value()
+                            .and_then(|v| self.value_to_string(v, Some(variables), string_delim))
+                            .ok()
+                    }) {
+                        return Ok(var);
+                    }
+                }
+                warn!(
+                    "The variable {} isn't recognized by rudderc, so we can't guarantee it will be defined when evaluated",
+                    v.fragment()
+                );
+                format!("{}${{{}}}{}", delim, v.fragment(), delim)
+            }
         })
     }
 }
@@ -367,13 +430,17 @@ impl Generator for CFEngine {
                 }
                 self.reset_context();
 
+                // println!("RES = {:#?}", gc.variable_definitions);
                 // Result bundle
                 let bundle_name = format!("{}_{}", resource_name.fragment(), state_name.fragment());
                 let parameters = resource
                     .parameters
                     .iter()
                     .chain(state.parameters.iter())
-                    .map(|p| p.name.fragment().to_string())
+                    .map(|p| {
+                        // println!("param = {:#?}", p);
+                        p.name.fragment().to_string()
+                    })
                     .collect::<Vec<String>>();
                 let mut bundle = Bundle::agent(bundle_name.clone())
                     .parameters(parameters.clone())
@@ -392,11 +459,9 @@ impl Generator for CFEngine {
                         ),
                     ]);
 
-                for methods in state
-                    .statements
-                    .iter()
-                    .flat_map(|statement| self.format_statement(gc, statement, "any".to_string()))
-                {
+                for methods in state.statements.iter().flat_map(|statement| {
+                    self.format_statement(gc, resource, state, statement, "any".to_string())
+                }) {
                     bundle.add_promise_group(methods);
                 }
 

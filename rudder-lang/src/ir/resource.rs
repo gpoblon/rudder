@@ -330,8 +330,10 @@ impl<'src> Parameter<'src> {
     }
 
     /// returns an error if the value has an incompatible type
+    // TODO handle variables
     pub fn value_match(&self, param_ref: &Value) -> Result<()> {
-        if self.type_ != Type::from_value(param_ref) {
+        let param_type = Type::from_value(param_ref);
+        if self.type_ != param_type {
             fail!(
                 self.name,
                 "Parameter {} is of type {:?}",
@@ -358,7 +360,7 @@ pub struct StateDeclaration<'src> {
 
 /// A single statement within a state definition
 // TODO error reporting
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 #[allow(clippy::large_enum_variant)]
 pub enum Statement<'src> {
     // TODO should we split variable definition and enum definition ? this would probably help generators

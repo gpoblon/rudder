@@ -6,6 +6,7 @@ use super::{
     enums::{EnumExpression, EnumExpressionPart, EnumList},
     resource::*,
     value::*,
+    variable::VariableDef,
 };
 use crate::{error::*, parser::*};
 use std::{
@@ -27,7 +28,7 @@ pub struct IR1<'src> {
     // the context is used for variable lookup whereas variable_definitions is used for code generation
     pub context: Rc<VarContext<'src>>,
     pub enum_list: EnumList<'src>,
-    pub variable_definitions: HashMap<Token<'src>, ComplexValue<'src>>,
+    pub variable_definitions: HashMap<Token<'src>, VariableDef<'src>>,
     pub parameter_defaults:
         HashMap<(Token<'src>, Option<Token<'src>>), Vec<Option<Constant<'src>>>>, // also used as parameter list since that's all we have
     pub resource_list: HashSet<Token<'src>>,
@@ -179,22 +180,11 @@ impl<'src> IR1<'src> {
         let context = Rc::get_mut(&mut self.context)
             .expect("Context has not been allocated before variables !");
         for variable in variables {
-            let PVariableDef {
-                metadata,
-                name,
-                value,
-            } = variable;
-            match ComplexValue::from_pcomplex_value(&self.enum_list, context, value) {
+            match VariableDef::from_pvariable_definition(variable, context, &self.enum_list) {
+                Ok(v) => {
+                    self.variable_definitions.insert(v.name, v);
+                }
                 Err(e) => self.errors.push(e),
-                Ok(val) => match Type::from_complex_value(&val) {
-                    Err(e) => self.errors.push(e),
-                    Ok(type_) => match context.add_variable_declaration(name, type_) {
-                        Err(e) => self.errors.push(e),
-                        Ok(()) => {
-                            self.variable_definitions.insert(name, val);
-                        }
-                    },
-                },
             }
         }
     }
@@ -208,7 +198,7 @@ impl<'src> IR1<'src> {
                     .errors
                     .push(err!(name, "Variable {} has never been defined", name)),
                 Some(v) => {
-                    if let Err(e) = v.extend(&self.enum_list, &self.context, value) {
+                    if let Err(e) = v.value.extend(&self.enum_list, &self.context, value) {
                         self.errors.push(e);
                     }
                 }

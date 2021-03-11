@@ -562,7 +562,7 @@ fn pvalue(i: PInput) -> PResult<PValue> {
         map(pescaped_string, |(x, y)| PValue::String(x, y)),
         map(pinteger, |(x, y)| PValue::Integer(x, y)),
         map(pfloat, |(x, y)| PValue::Float(x, y)),
-        map(penum_expression, PValue::EnumExpression),
+        map(penum_expression, PValue::EnumExpression), // or variable
         map(plist, PValue::List),
         map(pstruct, PValue::Struct),
     ))(i)

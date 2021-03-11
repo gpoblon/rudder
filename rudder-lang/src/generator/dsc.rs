@@ -100,6 +100,7 @@ impl DSC {
             Value::EnumExpression(_e) => "".into(), // TODO
             Value::List(_) => unimplemented!(),
             Value::Struct(_) => unimplemented!(),
+            Value::Variable(_) => unimplemented!(),
         })
     }
 
@@ -355,6 +356,7 @@ impl DSC {
                     ","
                 )?
             ),
+            Value::Variable(_) => unimplemented!(),
         })
     }
 
