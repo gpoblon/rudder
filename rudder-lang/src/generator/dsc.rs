@@ -11,7 +11,10 @@ use crate::{
         pascal_case, Call, Function, Method, Parameter, ParameterType, Parameters, Policy,
     },
     generator::Format,
-    ir::{context::Type, enums::EnumExpressionPart, ir2::IR2, resource::*, value::*},
+    ir::{
+        context::Type, enums::EnumExpressionPart, ir2::IR2, resource::*, value::*,
+        variable::VariableDef,
+    },
     parser::*,
     technique::fetch_method_parameters,
 };
@@ -174,13 +177,29 @@ impl DSC {
     fn format_statement(
         &mut self,
         gc: &IR2,
+        res_def: &ResourceDef,
+        state_def: &StateDef,
         st: &Statement,
         condition_content: String,
     ) -> Result<Vec<Call>> {
+        // get variables to try to get the proper parameter value
+        let mut variables: HashMap<&Token, &VariableDef> = HashMap::new();
+        for st_from_list in &state_def.statements {
+            // variables declared after the current statemnt are not defined at this point
+            if st_from_list == st {
+                break;
+            } else if let Statement::VariableDefinition(v) = st_from_list {
+                variables.insert(&v.name, v);
+            }
+        }
+        variables.extend(res_def.variable_definitions.get());
+        variables.extend(&gc.variable_definitions);
+
         match st {
             Statement::ConditionVariableDefinition(var) => {
                 let state_decl = var.to_method();
                 let method_name = &format!("{}-{}", var.resource.fragment(), var.state.fragment());
+
                 let mut parameters =
                     fetch_method_parameters(gc, &state_decl, |name, value, parameter_metadatas| {
                         let content_type = parameter_metadatas
@@ -189,7 +208,7 @@ impl DSC {
                             .and_then(|type_str| ParameterType::from_str(type_str).ok())
                             .unwrap_or(ParameterType::default());
                         let string_value = &self
-                            .value_to_string(value, false)
+                            .value_to_string(value, &variables, false)
                             .expect("Value is not formatted correctly");
                         Parameter::method_parameter(name, string_value, content_type)
                     });
@@ -228,6 +247,7 @@ impl DSC {
                 }
 
                 let method_name = &format!("{}-{}", sd.resource.fragment(), sd.state.fragment());
+
                 let mut parameters =
                     fetch_method_parameters(gc, sd, |name, value, parameter_metadatas| {
                         let content_type = parameter_metadatas
@@ -236,7 +256,7 @@ impl DSC {
                             .and_then(|type_str| ParameterType::from_str(type_str).ok())
                             .unwrap_or(ParameterType::default());
                         let string_value = &self
-                            .value_to_string(value, false)
+                            .value_to_string(value, &variables, false)
                             .expect("Value is not formatted correctly");
                         Parameter::method_parameter(name, string_value, content_type)
                     });
@@ -282,7 +302,13 @@ impl DSC {
                 for (case, vst) in vec {
                     let case_exp = self.format_case_expr(gc, &case.expression)?;
                     for st in vst {
-                        res.append(&mut self.format_statement(gc, st, case_exp.clone())?);
+                        res.append(&mut self.format_statement(
+                            gc,
+                            res_def,
+                            state_def,
+                            st,
+                            case_exp.clone(),
+                        )?);
                     }
                 }
                 Ok(res)
@@ -290,12 +316,12 @@ impl DSC {
             Statement::Fail(msg) => Ok(vec![Call::abort(
                 Parameters::new()
                     .message("policy_fail")
-                    .message(&self.value_to_string(msg, true)?), //self.parameter_to_dsc(msg, "Fail")?,
+                    .message(&self.value_to_string(msg, &variables, true)?),
             )]),
             Statement::LogDebug(msg) => Ok(vec![Call::log(
                 Parameters::new()
                     .message("log_debug")
-                    .message(&self.value_to_string(msg, true)?)
+                    .message(&self.value_to_string(msg, &variables, true)?)
                     //self.parameter_to_dsc(msg, "Log")?,
                     .message("None")
                     // TODO: unique class prefix
@@ -304,7 +330,7 @@ impl DSC {
             Statement::LogInfo(msg) => Ok(vec![Call::log(
                 Parameters::new()
                     .message("log_info")
-                    .message(&self.value_to_string(msg, true)?)
+                    .message(&self.value_to_string(msg, &variables, true)?)
                     .message("None")
                     // TODO: unique class prefix
                     .message("log_info"),
@@ -312,7 +338,7 @@ impl DSC {
             Statement::LogWarn(msg) => Ok(vec![Call::log(
                 Parameters::new()
                     .message("log_warn")
-                    .message(&self.value_to_string(msg, true)?)
+                    .message(&self.value_to_string(msg, &variables, true)?)
                     .message("None")
                     // TODO: unique class prefix
                     .message("log_warn"),
@@ -336,7 +362,12 @@ impl DSC {
         }
     }
 
-    fn value_to_string(&self, value: &Value, string_delim: bool) -> Result<String> {
+    fn value_to_string(
+        &self,
+        value: &Value,
+        variables: &HashMap<&Token, &VariableDef>,
+        string_delim: bool,
+    ) -> Result<String> {
         let delim = if string_delim { "\"" } else { "" };
         Ok(match value {
             Value::String(s) => format!("{}{}{}", delim, String::try_from(s)?, delim),
@@ -346,17 +377,36 @@ impl DSC {
             Value::EnumExpression(_) => unimplemented!(),
             Value::List(l) => format!(
                 "[ {} ]",
-                map_strings_results(l.iter(), |x| self.value_to_string(x, true), ",")?
+                map_strings_results(l.iter(), |x| self.value_to_string(x, variables, true), ",")?
             ),
             Value::Struct(s) => format!(
                 "{{ {} }}",
                 map_strings_results(
                     s.iter(),
-                    |(x, y)| Ok(format!(r#""{}":{}"#, x, self.value_to_string(y, true)?)),
+                    |(x, y)| Ok(format!(
+                        r#""{}":{}"#,
+                        x,
+                        self.value_to_string(y, variables, true)?
+                    )),
                     ","
                 )?
             ),
-            Value::Variable(_) => unimplemented!(),
+            Value::Variable(v) => {
+                if let Some(var) = variables.get(v).and_then(|var_def| {
+                    var_def
+                        .value
+                        .first_value()
+                        .and_then(|v| self.value_to_string(v, variables, string_delim))
+                        .ok()
+                }) {
+                    return Ok(var);
+                }
+                warn!(
+                    "The variable {} isn't recognized by rudderc, so we can't guarantee it will be defined when evaluated",
+                    v.fragment()
+                );
+                format!("{}${{{}}}{}", delim, v.fragment(), delim)
+            }
         })
     }
 
@@ -438,11 +488,9 @@ impl Generator for DSC {
                         Call::variable("$ResourcesDir", "$PSScriptRoot + \"\\resources\""),
                     ]);
 
-                for methods in state
-                    .statements
-                    .iter()
-                    .flat_map(|statement| self.format_statement(gc, statement, "any".to_string()))
-                {
+                for methods in state.statements.iter().flat_map(|statement| {
+                    self.format_statement(gc, resource, state, statement, "any".to_string())
+                }) {
                     function.push_scope(methods);
                 }
 
